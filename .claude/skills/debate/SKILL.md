@@ -1,6 +1,6 @@
 ---
 name: debate
-description: Run a structured, multi-round debate between Claude and Gemini on a question or design decision, then deliver a synthesized verdict with both models' closing judgments. Use when the user says /debate, "have Claude and Gemini debate", "AI consult", "get a second opinion from Gemini", or wants two models to argue opposing sides of a decision.
+description: Run a structured, multi-round debate between Claude and Gemini on a question or design decision, then have a neutral judge (a fresh subagent that sees only the anonymized transcript) rule on it and deliver a synthesis. Use when the user says /debate, "have Claude and Gemini debate", "AI consult", "get a second opinion from Gemini", or wants two models to argue opposing sides of a decision.
 ---
 
 # /debate — Claude vs Gemini consult
@@ -11,12 +11,13 @@ is stateless: every call must include the full transcript so far.
 
 ## Arguments
 
-`/debate <question> [--rounds N] [--claude-side <position>] [--gemini-side <position>]`
+`/debate <question> [--rounds N] [--claude-side <position>] [--gemini-side <position>] [--no-judge]`
 
 - `question` — required. If missing, ask for it and stop.
 - `--rounds` — rebuttal rounds after openings. Default **2**. Cap at 4.
 - `--claude-side` / `--gemini-side` — force positions. If not given, run
   **Step 1** to assign them.
+- `--no-judge` — skip the neutral judge in **Step 5** (faster, less rigorous).
 
 ## Preflight
 
@@ -73,17 +74,35 @@ which position it now finds more defensible and a confidence 0–100%,
 Then write Claude's closing under the same rules. Be honest here: if Gemini
 won, say so.
 
-## Step 5 — Synthesis (shown to the user)
+## Step 5 — Neutral judge
+
+Unless `--no-judge`: spawn a **fresh subagent** with the Agent tool
+(`subagent_type: general-purpose`, `run_in_background: false`). It must have
+no memory of this session, so the only thing in its prompt is the judge
+template below plus the transcript **with both out-of-role verdicts removed**
+(strip the closings' verdict paragraphs and `VERDICT:` lines; keep the
+argument summaries). Do not tell it which side you argued, which model is
+which, or what either debater concluded — relabel the speakers **Debater A**
+(Gemini) and **Debater B** (Claude) in the copy you send.
+
+Append the judge's full ruling to the transcript under `## Neutral judge`.
+If the Agent tool is unavailable, say so in the synthesis and mark the judge
+as skipped; never write the ruling yourself.
+
+## Step 6 — Synthesis (shown to the user)
 
 Print a short report, also appended to the transcript:
 
-1. **Verdicts side by side** — Gemini's and Claude's out-of-role verdicts and
-   confidences. If they disagree, say so plainly; do not paper over it.
+1. **Verdicts side by side** — the neutral judge's ruling first, then Gemini's
+   and Claude's out-of-role verdicts, each with confidence. If they disagree,
+   say so plainly; do not paper over it. Where the judge and a debater differ,
+   quote the judge's reason.
 2. **Points of agreement** — what both sides conceded or converged on.
 3. **Live disagreements** — the cruxes still open, each with the fact or
    experiment that would settle it.
-4. **Recommendation** — one paragraph, written as the host, with a caveat that
-   Claude hosted and judged its own side.
+4. **Recommendation** — one paragraph, written as the host. Defer to the
+   neutral judge unless you can name a specific error in its reasoning; if you
+   overrule it, say so and why. Note that Claude hosted and argued one side.
 5. Path to the transcript.
 
 ## Gemini prompt template
@@ -115,9 +134,37 @@ and a confidence from 0 to 100%. Format the last line exactly as:
 VERDICT: <position> — <NN>%
 ```
 
+## Neutral judge prompt template
+
+```
+You are the neutral judge of a structured debate between two AI debaters,
+Debater A and Debater B. You did not participate and you do not know which
+model played which side. Judge only what is in the transcript.
+
+QUESTION: <question>
+POSITION A: <side A>
+POSITION B: <side B>
+
+TRANSCRIPT
+<transcript with speakers relabeled A/B and all verdicts removed>
+
+Rule on the debate. Be specific and cite the transcript.
+1. For each side: its single strongest surviving argument, and the weakest
+   claim it made that went unanswered or was successfully rebutted.
+2. Concessions: what each side gave up, and whether any concession was decisive.
+3. Unresolved cruxes: the disagreements that remain, and for each, the fact,
+   measurement, or experiment that would settle it.
+4. Your ruling: which POSITION is more defensible on the arguments presented,
+   a confidence from 0 to 100%, and two sentences of reasoning. Do not split
+   the difference unless the arguments are genuinely balanced; if they are,
+   say why. Format the last line exactly as:
+RULING: <position> — <NN>%
+```
+
 ## Guardrails
 
-- Never fabricate a Gemini turn. A failed call ends the debate with the error shown.
+- Never fabricate a Gemini turn or a judge ruling. A failed Gemini call ends
+  the debate with the error shown; a failed judge is reported as skipped.
 - Never run more than 4 rebuttal rounds; if the user asks, explain the cap.
 - Keep user-visible output to the synthesis; the full transcript lives in the file.
 - If the question involves the user's own code, both debaters may be given

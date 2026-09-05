@@ -36,13 +36,17 @@ In Claude Code, from this repo:
 ```
 
 What happens: Gemini opens, Claude opens, N rebuttal rounds alternate, each
-side closes with an out-of-role verdict, and Claude prints a synthesis.
-See `SKILL.md` for the full protocol.
+side closes with an out-of-role verdict, a **neutral judge** (a fresh Claude
+subagent that sees only the anonymized transcript, with the debaters' verdicts
+stripped) rules on it, and Claude prints a synthesis leading with the judge's
+ruling. Pass `--no-judge` to skip the judge. See `SKILL.md` for the protocol.
 
 ## Notes
 
-- Claude both hosts and debates one side; the out-of-role verdict from Gemini
-  and the side-by-side verdicts exist to offset that bias.
+- Claude both hosts and debates one side. Two things offset that: Gemini's
+  out-of-role verdict, and the neutral judge, which runs in a separate
+  context with no session memory and is not told which model argued which
+  side.
 - `gemini.py` is stdlib-only Python 3.9+. Backend order: `gemini` CLI if on
   PATH, else the REST API. Force with `--backend cli|api` or `GEMINI_BACKEND`.
 - Transcript files under `debates/` are safe to commit or ignore as you prefer.
